@@ -16,10 +16,8 @@ let speclist =
 let () = Arg.parse speclist (fun _ -> ()) usage_msg
 
 let part = match !part_string with
-| "1"
 | "a"
 | "A" -> A
-| "2"
 | "b"
 | "B" -> B
 | _ -> raise (Failure "Invalid part")
@@ -28,8 +26,9 @@ let part_to_string part = match part with
 | A -> "a"
 | B -> "b"
 
-let input_file = String.concat "" [ "inputs/day";
+let input_file = String.concat "" [ "inputs/day_";
 string_of_int !day;
+"/";
 part_to_string part;
 if !is_test then "_test" else "" ;
 ".txt" ]
