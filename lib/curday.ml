@@ -1,73 +1,77 @@
-let get_number (line: string): int = 
-  let chars = Util.to_chars line in
-  let digits = List.filter_map Util.char_to_int chars in
-  let last, first = (List.nth digits ((List.length digits) - 1), List.nth digits 0 ) in
-  first * 10 + last
+type counts = {
+  red: int;
+  green: int;
+  blue: int
+}
 
-let solve_part_a lines =
-  let sum, _ = List.fold_left_map (fun acc line ->
-    let num = get_number line in
-    (acc + num, num)
-  ) 0 lines in
+let limits = {
+  red = 12;
+  green = 13;
+  blue = 14;
+}
+
+let parse_draw (draw: string) = 
+  let parts = Str.split (Str.regexp " ") draw in
+  let num = int_of_string (List.nth parts 0) in
+  let color = List.nth parts 1 in (num, color)
+
+let is_valid_draw (limits: counts) (draw: string) = 
+  let num, color = parse_draw draw in match color with
+  | "red" -> num <= limits.red
+  | "green" -> num <= limits.green
+  | "blue" -> num <= limits.blue
+  | _ -> raise (Failure ("Invalid color: " ^ color))
+
+let is_valid_game (limits: counts) (line: string) =
+  let game = List.nth (Str.split (Str.regexp ": ") line) 1 in
+  let no_colons = Str.global_replace (Str.regexp ",") ";" game in
+  let draws = Str.split (Str.regexp "; ") no_colons in
+  let all_valid = List.for_all (is_valid_draw limits) draws in
+  all_valid
+  
+let solve_part_a lines = 
+  let are_valid = List.map (is_valid_game limits) lines in
+  (*let () = List.iter (fun b -> print_string (string_of_bool b); print_newline ()) are_valid in *)
+  let ids = List.mapi (fun i is_valid -> if is_valid then i + 1 else 0) are_valid in
+  let sum = List.fold_left Int.add 0 ids in
   (
     print_int sum;
-    print_newline ()
+    print_newline ();
   )
 
-let number_word_strings = [
-  "zero";
-  "one";
-  "two";
-  "three";
-  "four";
-  "five";
-  "six";
-  "seven";
-  "eight";
-  "nine";
-]
+let update_counts (counts: counts) (draw: string) = 
+  let num, color = parse_draw draw in
+  match color with
+  | "red" -> {counts with red=if num > counts.red then num else counts.red}
+  | "green" -> {counts with green=if num > counts.green then num else counts.green}
+  | "blue" -> {counts with blue=if num > counts.blue then num else counts.blue}
+  | _ -> (raise (Failure ("Invalid color: " ^ color)))
 
-let indices = (List.init 10 (fun x -> x))
-let number_chars = List.map string_of_int indices
-let numbers = number_chars @ number_word_strings
+let get_counts (round: string) =
+  let parts = Str.split (Str.regexp ", ") round in
+  let start_counts = {red = 0; green = 0; blue = 0} in
+  let final_counts = List.fold_left update_counts start_counts parts in
+  final_counts
 
-let str_to_int num_str =
-  let indices = (List.init 20 (fun x -> x)) in
-  try let idx = List.find (fun idx -> (List.nth numbers idx) = num_str) indices in
-  idx mod 10
-with Not_found -> raise (Failure ("Not a valid number: " ^ num_str))
+let merge_counts (counts1: counts) (counts2: counts) = {
+  red = max counts1.red counts2.red;
+  green = max counts1.green counts2.green;
+  blue = max counts1.blue counts2.blue;
+}
 
-let find_first_last line number =
-  let re = Str.regexp_string number in
-  let len = String.length line in
-  try
-    let first = Str.search_forward re line 0 in
-    let last = Str.search_backward re line (len - 1) in
-    (number, first, last)
-  with Not_found -> (number, len, -1)
+let get_power (line: string) = 
+  let start_counts = {red = 0; green = 0; blue = 0} in
+  let game = List.nth (Str.split (Str.regexp ": ") line) 1 in
+  let rounds = Str.split (Str.regexp "; ") game in
+  let final_counts = List.fold_left (fun acc cur -> merge_counts acc (get_counts cur)) start_counts rounds in
+  final_counts.red * final_counts.green * final_counts.blue
 
-let get_number_b (line: string): int = 
-  let finder = find_first_last line in
-  let len = String.length line in
-  let entries = List.map finder numbers in
-  let (first, last, _, _) = List.fold_left (
-    fun (first, last, first_idx, last_idx) (number, cur_first_idx, cur_last_idx) ->
-      let new_first = if cur_first_idx < first_idx then number else first in
-      let new_first_idx = if cur_first_idx < first_idx then cur_first_idx else first_idx in
-      let new_last = if cur_last_idx > last_idx then number else last in
-      let new_last_idx = if cur_last_idx > last_idx then cur_last_idx else last_idx in
-      (new_first, new_last, new_first_idx, new_last_idx)
-  ) ("0", "0", len, -1) entries in
-  let number = (str_to_int first) * 10 + (str_to_int last) in
-  number
-  
 
-let solve_part_b lines = 
-  let sum, _ = List.fold_left_map (fun acc line ->
-    let num = get_number_b line in
-    (acc + num, num)
-  ) 0 lines in
+
+
+let solve_part_b lines =
+  let power = List.fold_left (fun acc cur -> acc + (get_power cur)) 0 lines in
   (
-    print_int sum;
-    print_newline ()
+    print_int power;
+    print_newline ();
   )
