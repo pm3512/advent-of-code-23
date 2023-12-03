@@ -1,77 +1,112 @@
-type counts = {
-  red: int;
-  green: int;
-  blue: int
+type number_details = {
+  line_idx: int;
+  first: int;
+  last: int;
+  number: int
 }
 
-let limits = {
-  red = 12;
-  green = 13;
-  blue = 14;
-}
+module Indices = Set.Make(struct type t = (int * int) let compare = Util.pair_compare end)
+module IndicesMap = Map.Make(struct type t = (int * int) let compare = Util.pair_compare end)
 
-let parse_draw (draw: string) = 
-  let parts = Str.split (Str.regexp " ") draw in
-  let num = int_of_string (List.nth parts 0) in
-  let color = List.nth parts 1 in (num, color)
+let rec get_number_details ?(start=0) line_idx line =
+  let regex = Str.regexp "[0-9]+" in
+  match Str.search_forward regex line start with
+  | i -> (
+    let last = Str.match_end () in
+    let len = last - i in
+    {line_idx = line_idx; first = i; last = last - 1; number = int_of_string (String.sub line i len)}
+    :: (get_number_details ~start:(last) line_idx line)
+  )
+  | exception Not_found -> []
 
-let is_valid_draw (limits: counts) (draw: string) = 
-  let num, color = parse_draw draw in match color with
-  | "red" -> num <= limits.red
-  | "green" -> num <= limits.green
-  | "blue" -> num <= limits.blue
-  | _ -> raise (Failure ("Invalid color: " ^ color))
+let get_neighbors ~line_num ~first ~last =
+  let len = last - first + 1 in
+  let same_row = [(line_num, first - 1); (line_num, last + 1)] in
+  let prev_row = List.init (len + 2) (fun i -> (line_num - 1, first - 1 + i)) in
+  let next_row = List.init (len + 2) (fun i -> (line_num + 1, first - 1 + i)) in
+  let all = prev_row @ same_row @ next_row in
+  List.filter (fun (y, x) -> y >= 0 && x >= 0) all
 
-let is_valid_game (limits: counts) (line: string) =
-  let game = List.nth (Str.split (Str.regexp ": ") line) 1 in
-  let no_colons = Str.global_replace (Str.regexp ",") ";" game in
-  let draws = Str.split (Str.regexp "; ") no_colons in
-  let all_valid = List.for_all (is_valid_draw limits) draws in
-  all_valid
-  
+let rec get_character_indices ?(start=0) line_idx line =
+  let regex = Str.regexp "[*#+$/@%=&-]" in
+  match Str.search_forward regex line start with
+  | i -> (
+    (line_idx, i) :: (get_character_indices ~start:(i + 1) line_idx line)
+  )
+  | exception Not_found -> []
+
+
+let character_index_set lines = List.fold_left (
+  fun (set: Indices.t) (line_idx, line) ->
+    let char_idx = get_character_indices line_idx line in
+    let newset = List.fold_left (fun (set: Indices.t) idx -> Indices.add idx set) set char_idx in
+    newset
+) Indices.empty lines
+
+let line_sum set line_idx line =
+  let details = get_number_details line_idx line in
+  let filtered = List.filter (
+    fun detail ->
+      let neighbors = get_neighbors ~line_num:detail.line_idx ~first:detail.first ~last:detail.last in
+      List.exists (fun neighbor -> Indices.mem neighbor set) neighbors
+  ) details in
+  let sum = List.fold_left (fun acc cur -> acc + cur.number) 0 filtered in
+  sum
+
+
 let solve_part_a lines = 
-  let are_valid = List.map (is_valid_game limits) lines in
-  (*let () = List.iter (fun b -> print_string (string_of_bool b); print_newline ()) are_valid in *)
-  let ids = List.mapi (fun i is_valid -> if is_valid then i + 1 else 0) are_valid in
-  let sum = List.fold_left Int.add 0 ids in
+  let enumerated = List.mapi (fun i line -> (i, line)) lines in
+  let set = character_index_set enumerated in
+  let line_sums = List.map (fun (i, line) -> line_sum set i line) enumerated in
+  let sum =List.fold_left Int.add 0 line_sums in
   (
     print_int sum;
     print_newline ();
   )
+  
+let rec get_character_idx_b ?(start=0) line_idx line =
+  let regex = Str.regexp "*" in
+  match Str.search_forward regex line start with
+  | i -> (
+    (line_idx, i) :: (get_character_idx_b ~start:(i + 1) line_idx line)
+  )
+  | exception Not_found -> []
 
-let update_counts (counts: counts) (draw: string) = 
-  let num, color = parse_draw draw in
-  match color with
-  | "red" -> {counts with red=if num > counts.red then num else counts.red}
-  | "green" -> {counts with green=if num > counts.green then num else counts.green}
-  | "blue" -> {counts with blue=if num > counts.blue then num else counts.blue}
-  | _ -> (raise (Failure ("Invalid color: " ^ color)))
+let character_index_map lines = List.fold_left (
+  fun (map: (int list) IndicesMap.t) (line_idx, line) ->
+    let char_idx = get_character_idx_b line_idx line in
+    let newset = List.fold_left (fun (map: (int list) IndicesMap.t) idx -> IndicesMap.add idx [] map) map char_idx in
+    newset
+) IndicesMap.empty lines
 
-let get_counts (round: string) =
-  let parts = Str.split (Str.regexp ", ") round in
-  let start_counts = {red = 0; green = 0; blue = 0} in
-  let final_counts = List.fold_left update_counts start_counts parts in
-  final_counts
-
-let merge_counts (counts1: counts) (counts2: counts) = {
-  red = max counts1.red counts2.red;
-  green = max counts1.green counts2.green;
-  blue = max counts1.blue counts2.blue;
-}
-
-let get_power (line: string) = 
-  let start_counts = {red = 0; green = 0; blue = 0} in
-  let game = List.nth (Str.split (Str.regexp ": ") line) 1 in
-  let rounds = Str.split (Str.regexp "; ") game in
-  let final_counts = List.fold_left (fun acc cur -> merge_counts acc (get_counts cur)) start_counts rounds in
-  final_counts.red * final_counts.green * final_counts.blue
-
-
-
+let line_reduce map line_idx line =
+  let details = get_number_details line_idx line in
+  let newmap = List.fold_left (
+    fun map detail ->
+      let neighbors = get_neighbors ~line_num:detail.line_idx ~first:detail.first ~last:detail.last in
+      List.fold_left (
+        fun (map: (int list) IndicesMap.t) neighbor ->  
+          let v = IndicesMap.find_opt neighbor map in
+          match v with
+          | None -> map
+          | Some l -> IndicesMap.add neighbor (detail.number::l) map 
+      ) map neighbors
+  ) map details in
+  newmap
 
 let solve_part_b lines =
-  let power = List.fold_left (fun acc cur -> acc + (get_power cur)) 0 lines in
+  let enumerated = List.mapi (fun i line -> (i, line)) lines in
+  let map_start = character_index_map enumerated in
+  let map_end = List.fold_left (
+    fun map (line_idx, line) -> line_reduce map line_idx line
+  ) map_start enumerated in
+  let filtered = IndicesMap.filter (
+    fun _ l -> List.length l = 2
+  ) map_end in
+  let sum = IndicesMap.fold (
+    fun _ l sum -> (List.nth l 0) * (List.nth l 1) + sum
+  ) filtered 0 in
   (
-    print_int power;
+    print_int sum;
     print_newline ();
   )
