@@ -1,111 +1,56 @@
-type number_details = {
-  line_idx: int;
-  first: int;
-  last: int;
-  number: int
-}
+module IntSet = Set.Make(Int)
 
-module Indices = Set.Make(struct type t = (int * int) let compare = Util.pair_compare end)
-module IndicesMap = Map.Make(struct type t = (int * int) let compare = Util.pair_compare end)
+let store_winning number_str =
+  let numbers = Str.split (Str.regexp " +") number_str in
+  List.fold_left (fun set num -> IntSet.add (int_of_string num) set) IntSet.empty numbers
 
-let rec get_number_details ?(start=0) line_idx line =
-  let regex = Str.regexp "[0-9]+" in
-  match Str.search_forward regex line start with
-  | i -> (
-    let last = Str.match_end () in
-    let len = last - i in
-    {line_idx = line_idx; first = i; last = last - 1; number = int_of_string (String.sub line i len)}
-    :: (get_number_details ~start:(last) line_idx line)
-  )
-  | exception Not_found -> []
+let points winning number_str =
+  let numbers = Str.split (Str.regexp " +") number_str in
+  List.fold_left (fun pts num ->
+    if IntSet.mem (int_of_string num) winning then
+      match pts with
+      | 0 -> 1
+      | _ -> pts * 2
+    else pts
+  ) 0 numbers
 
-let get_neighbors ~line_num ~first ~last =
-  let len = last - first + 1 in
-  let same_row = [(line_num, first - 1); (line_num, last + 1)] in
-  let prev_row = List.init (len + 2) (fun i -> (line_num - 1, first - 1 + i)) in
-  let next_row = List.init (len + 2) (fun i -> (line_num + 1, first - 1 + i)) in
-  let all = prev_row @ same_row @ next_row in
-  List.filter (fun (y, x) -> y >= 0 && x >= 0) all
-
-let rec get_character_indices ?(start=0) line_idx line =
-  let regex = Str.regexp "[*#+$/@%=&-]" in
-  match Str.search_forward regex line start with
-  | i -> (
-    (line_idx, i) :: (get_character_indices ~start:(i + 1) line_idx line)
-  )
-  | exception Not_found -> []
-
-
-let character_index_set lines = List.fold_left (
-  fun (set: Indices.t) (line_idx, line) ->
-    let char_idx = get_character_indices line_idx line in
-    let newset = List.fold_left (fun (set: Indices.t) idx -> Indices.add idx set) set char_idx in
-    newset
-) Indices.empty lines
-
-let line_sum set line_idx line =
-  let details = get_number_details line_idx line in
-  let filtered = List.filter (
-    fun detail ->
-      let neighbors = get_neighbors ~line_num:detail.line_idx ~first:detail.first ~last:detail.last in
-      List.exists (fun neighbor -> Indices.mem neighbor set) neighbors
-  ) details in
-  let sum = List.fold_left (fun acc cur -> acc + cur.number) 0 filtered in
-  sum
-
-
+let get_score_line ~scoring_f line =
+  let parts = Str.split (Str.regexp ": ") line in
+  let numbers = List.nth parts 1 in
+  let parts = Str.split (Str.regexp " | ") numbers in
+  let winning = store_winning (List.nth parts 0) in
+  let pts = scoring_f winning (List.nth parts 1) in
+  pts
+  
 let solve_part_a lines = 
-  let enumerated = List.mapi (fun i line -> (i, line)) lines in
-  let set = character_index_set enumerated in
-  let line_sums = List.map (fun (i, line) -> line_sum set i line) enumerated in
-  let sum =List.fold_left Int.add 0 line_sums in
+  let line_scores = List.map (get_score_line ~scoring_f:points) lines in
+  let total_score = List.fold_left (fun acc cur -> acc + cur) 0 line_scores in
   (
-    print_int sum;
+    print_int total_score;
     print_newline ();
   )
-  
-let rec get_character_idx_b ?(start=0) line_idx line =
-  let regex = Str.regexp "*" in
-  match Str.search_forward regex line start with
-  | i -> (
-    (line_idx, i) :: (get_character_idx_b ~start:(i + 1) line_idx line)
-  )
-  | exception Not_found -> []
 
-let character_index_map lines = List.fold_left (
-  fun (map: (int list) IndicesMap.t) (line_idx, line) ->
-    let char_idx = get_character_idx_b line_idx line in
-    let newset = List.fold_left (fun (map: (int list) IndicesMap.t) idx -> IndicesMap.add idx [] map) map char_idx in
-    newset
-) IndicesMap.empty lines
+let count_winning winning number_str =
+  let numbers = Str.split (Str.regexp " +") number_str in
+  List.fold_left (fun pts num ->
+    if IntSet.mem (int_of_string num) winning then
+      pts + 1
+    else pts
+  ) 0 numbers
 
-let line_reduce map line_idx line =
-  let details = get_number_details line_idx line in
-  let newmap = List.fold_left (
-    fun map detail ->
-      let neighbors = get_neighbors ~line_num:detail.line_idx ~first:detail.first ~last:detail.last in
-      List.fold_left (
-        fun (map: (int list) IndicesMap.t) neighbor ->  
-          let v = IndicesMap.find_opt neighbor map in
-          match v with
-          | None -> map
-          | Some l -> IndicesMap.add neighbor (detail.number::l) map 
-      ) map neighbors
-  ) map details in
-  newmap
-
-let solve_part_b lines =
-  let enumerated = List.mapi (fun i line -> (i, line)) lines in
-  let map_start = character_index_map enumerated in
-  let map_end = List.fold_left (
-    fun map (line_idx, line) -> line_reduce map line_idx line
-  ) map_start enumerated in
-  let filtered = IndicesMap.filter (
-    fun _ l -> List.length l = 2
-  ) map_end in
-  let sum = IndicesMap.fold (
-    fun _ l sum -> (List.nth l 0) * (List.nth l 1) + sum
-  ) filtered 0 in
+let solve_part_b lines = 
+  let num_cards = List.length lines in
+  let matches = List.map (get_score_line ~scoring_f:count_winning) lines in
+  let dp = Array.init num_cards (fun _ -> 1) in
+  let () = List.iteri (
+    fun i count -> (
+      let cur_count = dp.(i) in
+      for j = i + 1 to i + count do
+        dp.(j) <- dp.(j) + cur_count
+      done
+    )
+  ) matches in
+  let sum = Array.fold_left (fun acc cur -> acc + cur) 0 dp in
   (
     print_int sum;
     print_newline ();
